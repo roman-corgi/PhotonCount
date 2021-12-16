@@ -16,7 +16,9 @@ This will install photon_count and its dependencies, which are as follows:
 
 ### Usage
 
-For an example of how to use PhotonCount, see example_script_pc.py.
+For an example of how to use PhotonCount, see example_script_pc.py (which utilizes the emccd_detect package, https://github.jpl.nasa.gov/WFIRST-CGI/emccd_detect).  
+
+The example script of proc_cgi_frame (https://github.jpl.nasa.gov/WFIRST-CGI/proc_cgi_frame) utilizes this package.
 
 
 ## Authors
