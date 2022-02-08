@@ -5,11 +5,11 @@ import unittest
 
 import numpy as np
 
-from proc_cgi_frame.corr_photon_count import (calc_lam_approx,
+from PhotonCount.corr_photon_count import (calc_lam_approx,
                                               corr_photon_count, get_count_rate,
                                               lam_newton_fit, _calc_dfunc,
                                               _calc_func)
-from proc_cgi_frame.corr_photon_count import CorrPhotonCountException
+from PhotonCount.corr_photon_count import CorrPhotonCountException
 
 
 # Analytical results from Mathematica
@@ -307,3 +307,6 @@ class Test_CalcDfunc(unittest.TestCase):
 
         self.assertTrue(np.max(np.abs(dfunc - dfunc_mat)) < tol)
         self.assertTrue(np.max(np.abs(dfunc1 - dfunc_mat1)) < tol)
+
+if __name__ == '__main__':
+    unittest.main()

@@ -82,6 +82,54 @@ def get_count_rate(frames, thresh, em_gain, niter=2):
 
     return mean_expected_rate
 
+def get_counts_uncorrected(frames, thresh, em_gain):
+    """Take a stack of analog images and return the mean expected rate.
+    This algorithm will photon count each frame in the stack individually,
+    then return this stack, without correcting for thresholding or coincidence
+    loss.
+    Parameters
+    ----------
+    frames : array_like
+        Bias subtracted frames in units of electrons (not dark subtracted or
+        gain divided) (e-/pix/frame).
+    thresh : float
+        Photon counting threshold (e-).
+    em_gain : float
+        EM gain used when taking images.
+    Returns
+    -------
+    frames_pc : array_like
+        photon-counted using threshold without correction
+        (e-/pix/frame).
+    Notes
+    -----
+    Note that the output frame is in units of electrons, not photons. Photon
+    counting is still happening though; units of electrons are only used
+    becuase by definition all photon counting is still in units of electrons.
+    References
+    ----------
+    [1] https://www.spiedigitallibrary.org/conference-proceedings-of-spie/11443/114435F/Photon-counting-and-precision-photometry-for-the-Roman-Space-Telescope/10.1117/12.2575983.full
+    B Nemati, S Miller - UAH - 13-Dec-2020
+    """
+    # Check if input is an array/castable to one
+    frames = np.array(frames).astype(float)
+    if len(frames.shape) == 0:
+        raise CorrPhotonCountException('frames must have length > 0')
+
+    # Check other inputs
+    if thresh < 0:
+        raise CorrPhotonCountException('thresh must be nonnegative')
+    if em_gain <= 0:
+        raise CorrPhotonCountException('em_gain must be greater than 0')
+
+    if thresh >= em_gain:
+        warnings.warn('thresh should be less than em_gain for effective '
+        'photon counting')
+
+    # Photon count stack of frames
+    frames_pc = np.array([photon_count(frame, thresh) for frame in frames])
+
+    return frames_pc
 
 def corr_photon_count(nobs, nfr, t, g, niter=2):
     """Correct photon counted images.

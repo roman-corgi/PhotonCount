@@ -6,8 +6,8 @@ import unittest
 
 import numpy as np
 
-from proc_cgi_frame.photon_count import photon_count
-from proc_cgi_frame.photon_count import PhotonCountException
+from PhotonCount.photon_count import photon_count
+from PhotonCount.photon_count import PhotonCountException
 
 
 class TestPhotonCount(unittest.TestCase):

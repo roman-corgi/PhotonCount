@@ -1,0 +1,128 @@
+# -*- coding: utf-8 -*-
+"""Get histograms of noise."""
+import numpy as np
+import matplotlib.pyplot as plt
+import warnings
+
+from emccd_detect.emccd_detect import EMCCDDetect
+from PhotonCount.corr_photon_count import (get_count_rate,
+                                        get_counts_uncorrected)
+
+def imagesc(data, title=None, vmin=None, vmax=None, cmap='viridis',
+            aspect='equal', colorbar=True):
+    """Plot a scaled colormap."""
+    fig, ax = plt.subplots()
+    im = ax.imshow(data, vmin=vmin, vmax=vmax, cmap=cmap, aspect=aspect)
+
+    if title:
+        ax.set_title(title)
+    if colorbar:
+        fig.colorbar(im, ax=ax)
+
+    return fig, ax
+
+
+if __name__ == '__main__':
+    #full_fluxmap = np.ones((1024, 1024))
+    fluxmap = np.ones((100,100))
+    frametime = .1  # s (adjust lambda by adjust this)
+    em_gain = 5000.
+
+    emccd = EMCCDDetect(
+        em_gain=em_gain,
+        full_well_image=60000.,  # e-
+        full_well_serial=100000.,  # e-
+        dark_current=0.00,  # e-/pix/s
+        cic=0.0,  # e-/pix/frame
+        read_noise=0.,  # e-/pix/frame
+        bias=0, # 10000.,  # e-
+        qe=1,  # set this to 1 so it doesn't affect lambda
+        cr_rate=0.,  # hits/cm^2/s
+        pixel_pitch=13e-6,  # m
+        eperdn=1.,  # set this to 1 so there's no data loss when converting back to e-
+        nbits=64,
+        numel_gain_register=604
+        )
+
+    # Simulate several full frames
+    frames_l = []
+    pc_inputs = []
+    nframes = 300
+    thresh = emccd.em_gain/1
+    counts = 0
+
+    if np.average(frametime*fluxmap) > 0.5:
+        warnings.warn('average # of photons/pixel is > 0.5.  Decrease frame '
+        'time to get lower average # of photons/pixel.')
+
+    # Photon count, co-add, and correct for photometric error
+    if emccd.read_noise <=0:
+       warnings.warn('read noise should be greater than 0 for effective '
+       'photon counting')
+    if thresh < 4*emccd.read_noise:
+       warnings.warn('thresh should be at least 4 or 5 times read_noise for '
+       'accurate photon counting')
+
+    for i in range(nframes):
+        #sim_full_frame = emccd.sim_full_frame(full_fluxmap, frametime)
+        sim_sub_frame = emccd.sim_sub_frame(fluxmap,frametime)
+        pc_frame = get_count_rate(sim_sub_frame*emccd.eperdn-emccd.bias,
+                                 thresh, emccd.em_gain)
+        pc_frame_unc = get_counts_uncorrected(sim_sub_frame*emccd.eperdn-emccd.bias,
+                                thresh, emccd.em_gain)
+        counts += np.sum(pc_frame_unc)/100**2  #to get # of '1's per pixel
+        #pc_inputs.append(sim_sub_frame*emccd.eperdn-emccd.bias)
+        pc_inputs.append(pc_frame)
+        e_frame = emccd.get_e_frame(sim_sub_frame)
+        frames_l.append(e_frame)
+
+
+    mean_num_counts = counts/nframes
+
+    frames = np.stack(frames_l)
+
+    frame_e_cube = np.stack(pc_inputs)
+
+    if emccd.qe*frametime* \
+        np.average(np.sum(frame_e_cube,axis=0)/nframes)/emccd.em_gain < 5* \
+        np.max(np.array([emccd.cic, emccd.dark_current])):
+        warnings.warn('# of electrons/pixel needs to be bigger than about 5 '
+        'times the noise (due to CIC and dark current)')
+
+    # Plot images
+    #imagesc(emccd.get_e_frame(frames[0]), 'Output Full Frame')
+
+    f, ax = plt.subplots(1,2)
+    ax[0].hist(np.mean(frames,axis=0).flatten(), bins=20)
+    ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
+    ax[0].set_title('Pixel mean')
+    ax[1].hist(np.std(frames,axis=0).flatten(), bins=20)
+    ax[1].axvline(np.sqrt(np.mean(fluxmap)*frametime),color='black')
+    ax[1].axvline(np.sqrt(2*np.mean(fluxmap)*frametime),color='red')
+    ax[1].set_title('Pixel sdev')
+    plt.tight_layout()
+    plt.show()
+
+    #pc_frame = get_count_rate(frame_e_cube, thresh, emccd.em_gain)
+
+    #plotting images of photon-counted frames
+    f, ax = plt.subplots(1,2)
+    #ax[0].hist(np.mean(pc_frame).flatten(), bins=20)
+    ax[0].hist(np.mean(frame_e_cube,axis=0).flatten(), bins=20)
+    ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
+    ax[0].axvline(mean_num_counts, color='red')
+    ax[0].set_title('PC pixel mean')
+    #ax[1].hist(np.std(pc_frame).flatten(), bins=20)
+    ax[1].hist(np.std(frame_e_cube,axis=0).flatten(), bins=20)
+    ax[1].axvline(np.sqrt(mean_num_counts),color='black')
+    ax[1].set_title('PC pixel sdev')
+    plt.tight_layout()
+    plt.show()
+
+    # data = emccd.get_e_frame(emccd.slice_fluxmap(frames[0]).ravel())
+    # plt.figure()
+    # plt.hist(data, bins=50)
+    # plt.title(f'em gain = {em_gain}, lambda = {np.mean(full_fluxmap) * frametime}')
+    # plt.xlabel('counts (e-)')
+
+    # plt.show()
