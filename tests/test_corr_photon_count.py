@@ -141,6 +141,15 @@ class TestGetCountRate(unittest.TestCase):
         with self.assertRaises(CorrPhotonCountException):
             get_count_rate(self.frames, self.thresh, self.em_gain, niter)
 
+    def test_nframes_1(self):
+        """Verify that get_count_rate works when the input to get_count_rate is
+        1 frame.
+        """
+        frame = np.zeros((5, 5)).astype(np.float64)
+        rate = get_count_rate(frame, self.thresh, self.em_gain)
+
+        self.assertEqual(rate.shape, (5, 5))
+
 
 class TestCorrPhotonCount(unittest.TestCase):
     """Unit tests for corr_photon_count function."""

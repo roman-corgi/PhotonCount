@@ -24,7 +24,8 @@ def imagesc(data, title=None, vmin=None, vmax=None, cmap='viridis',
 
 if __name__ == '__main__':
     #full_fluxmap = np.ones((1024, 1024))
-    fluxmap = np.ones((100,100))
+    pix_row = 150 #number of rows and number of columns
+    fluxmap = np.ones((pix_row,pix_row))
     frametime = .1  # s (adjust lambda by adjust this)
     em_gain = 5000.
 
@@ -47,8 +48,8 @@ if __name__ == '__main__':
     # Simulate several full frames
     frames_l = []
     pc_inputs = []
-    nframes = 300
-    thresh = emccd.em_gain/1
+    nframes = 100
+    thresh = emccd.em_gain/10
     counts = 0
 
     if np.average(frametime*fluxmap) > 0.5:
@@ -63,66 +64,124 @@ if __name__ == '__main__':
        warnings.warn('thresh should be at least 4 or 5 times read_noise for '
        'accurate photon counting')
 
-    for i in range(nframes):
-        #sim_full_frame = emccd.sim_full_frame(full_fluxmap, frametime)
-        sim_sub_frame = emccd.sim_sub_frame(fluxmap,frametime)
-        pc_frame = get_count_rate(sim_sub_frame*emccd.eperdn-emccd.bias,
-                                 thresh, emccd.em_gain)
-        pc_frame_unc = get_counts_uncorrected(sim_sub_frame*emccd.eperdn-emccd.bias,
-                                thresh, emccd.em_gain)
-        counts += np.sum(pc_frame_unc)/100**2  #to get # of '1's per pixel
-        #pc_inputs.append(sim_sub_frame*emccd.eperdn-emccd.bias)
-        pc_inputs.append(pc_frame)
-        e_frame = emccd.get_e_frame(sim_sub_frame)
-        frames_l.append(e_frame)
+    #investigating case where number of frames is 1:
+    # for i in range(nframes):
+    #     #sim_full_frame = emccd.sim_full_frame(full_fluxmap, frametime)
+    #     sim_sub_frame = emccd.sim_sub_frame(fluxmap,frametime)
+    #     pc_frame = get_count_rate(sim_sub_frame*emccd.eperdn-emccd.bias,
+    #                              thresh, emccd.em_gain)
+    #     pc_frame_unc = get_counts_uncorrected(sim_sub_frame*emccd.eperdn-emccd.bias,
+    #                             thresh, emccd.em_gain)
+    #     counts += np.sum(pc_frame_unc)/pix_row**2  #to get avg # of '1's per pixel
+    #     #pc_inputs.append(sim_sub_frame*emccd.eperdn-emccd.bias)
+    #     pc_inputs.append(pc_frame)
+    #     e_frame = emccd.get_e_frame(sim_sub_frame)
+    #     frames_l.append(e_frame)
 
+    # mean_num_counts = counts/nframes
 
-    mean_num_counts = counts/nframes
+    # frames = np.stack(frames_l)
 
-    frames = np.stack(frames_l)
+    # frame_e_cube = np.stack(pc_inputs)
 
-    frame_e_cube = np.stack(pc_inputs)
+    # Plot images
+    #imagesc(emccd.get_e_frame(frames[0]), 'Output Full Frame')
 
+    # f, ax = plt.subplots(1,2)
+    # ax[0].hist(np.mean(frames,axis=0).flatten(), bins=20)
+    # ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
+    # ax[0].set_title('Pixel mean')
+    # ax[1].hist(np.std(frames,axis=0).flatten(), bins=20)
+    # ax[1].axvline(np.sqrt(np.mean(fluxmap)*frametime),color='black')
+    # ax[1].axvline(np.sqrt(2*np.mean(fluxmap)*frametime),color='red')
+    # ax[1].set_title('Pixel sdev')
+    # plt.tight_layout()
+    # plt.show()
+
+    exp_lambda = np.mean(fluxmap)*frametime
+    #exp_lambda = mean_num_counts
+    #pc_frame = get_count_rate(frame_e_cube, thresh, emccd.em_gain)
+    e_coinloss = (1 - np.exp(-exp_lambda)) / exp_lambda
+    e_thresh = (
+        np.exp(-thresh/em_gain)
+        * (
+            thresh**2 * exp_lambda**2
+            + 2*em_gain * thresh * exp_lambda * (3 + exp_lambda)
+            + 2*em_gain**2 * (6 + 3*exp_lambda + exp_lambda**2)
+        )
+        / (2*em_gain**2 * (6 + 3*exp_lambda + exp_lambda**2))
+    )
+    e_thresh1 = np.exp(-thresh/em_gain)
+
+    #plotting images of photon-counted frames
+    # f, ax = plt.subplots(1,2)
+    # #ax[0].hist(np.mean(pc_frame).flatten(), bins=20)
+    # ax[0].hist(np.mean(frame_e_cube,axis=0).flatten(), bins=20)
+    # ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
+    # ax[0].axvline(mean_num_counts, color='red')
+    # ax[0].axvline(e_thresh*exp_lambda*e_coinloss, color='green')
+    # ax[0].axvline(np.mean(np.mean(frame_e_cube,axis=0).flatten()), color='brown')
+    # ax[0].set_title('PC pixel mean')
+    # #ax[1].hist(np.std(pc_frame).flatten(), bins=20)
+    # ax[1].hist(np.std(frame_e_cube,axis=0).flatten(), bins=20)
+    # ax[1].axvline(np.sqrt(mean_num_counts),color='black')
+    # ax[1].axvline(np.sqrt(e_thresh*exp_lambda*e_coinloss), color='red')
+    # ax[1].axvline(np.mean(np.std(frame_e_cube,axis=0).flatten()), color='green')
+    # #ax[1].axvline(np.sqrt(exp_lambda*e_coinloss*e_thresh),color='red')
+    # ax[1].set_title('PC pixel sdev')
+    # plt.tight_layout()
+    # plt.show()
+
+    counts = 0
+    ntimes = 50
+    pc_list = []
+    nframes = 70
+    for x in range(ntimes):
+        frame_e_list = []
+        frame_e_dark_list = []
+        for i in range(nframes):
+            # Simulate bright
+            frame_dn = emccd.sim_sub_frame(fluxmap, frametime)
+            # Simulate dark
+            frame_dn_dark = emccd.sim_sub_frame(np.zeros_like(fluxmap), frametime)
+
+            # Convert from dn to e- and bias subtract
+            frame_e = frame_dn * emccd.eperdn - emccd.bias
+            frame_e_dark = frame_dn_dark * emccd.eperdn - emccd.bias
+
+            frame_e_list.append(frame_e)
+            frame_e_dark_list.append(frame_e_dark)
+
+        frame_e_cube = np.stack(frame_e_list)
+        mean_rate = get_count_rate(frame_e_cube, thresh, emccd.em_gain)
+        pc_frame_unc = np.stack(get_counts_uncorrected(frame_e_cube,
+                                thresh, emccd.em_gain))
+        #counts += np.sum(np.sum(pc_frame_unc,axis=0))/(nframes*pix_row**2)  #to get avg # of '1's per pixel
+        counts += np.sum(np.sum(pc_frame_unc,axis=0))/(nframes*pix_row**2)
+        pc_list.append(mean_rate)
+        #pc_list.append(pc_frame_unc)
+        #pc_list.append(np.sum(pc_frame_unc,axis=0))
+    mean_num_counts = counts/ntimes
+    pc_cube = np.stack(pc_list)
     if emccd.qe*frametime* \
         np.average(np.sum(frame_e_cube,axis=0)/nframes)/emccd.em_gain < 5* \
         np.max(np.array([emccd.cic, emccd.dark_current])):
         warnings.warn('# of electrons/pixel needs to be bigger than about 5 '
         'times the noise (due to CIC and dark current)')
 
-    # Plot images
-    #imagesc(emccd.get_e_frame(frames[0]), 'Output Full Frame')
 
-    f, ax = plt.subplots(1,2)
-    ax[0].hist(np.mean(frames,axis=0).flatten(), bins=20)
-    ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
-    ax[0].set_title('Pixel mean')
-    ax[1].hist(np.std(frames,axis=0).flatten(), bins=20)
-    ax[1].axvline(np.sqrt(np.mean(fluxmap)*frametime),color='black')
-    ax[1].axvline(np.sqrt(2*np.mean(fluxmap)*frametime),color='red')
-    ax[1].set_title('Pixel sdev')
-    plt.tight_layout()
-    plt.show()
 
-    #pc_frame = get_count_rate(frame_e_cube, thresh, emccd.em_gain)
-
-    #plotting images of photon-counted frames
     f, ax = plt.subplots(1,2)
     #ax[0].hist(np.mean(pc_frame).flatten(), bins=20)
-    ax[0].hist(np.mean(frame_e_cube,axis=0).flatten(), bins=20)
+    ax[0].hist(np.mean(pc_cube,axis=0).flatten(), bins=20)
     ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
     ax[0].axvline(mean_num_counts, color='red')
+    ax[0].axvline(e_thresh*exp_lambda*e_coinloss, color='green')
     ax[0].set_title('PC pixel mean')
     #ax[1].hist(np.std(pc_frame).flatten(), bins=20)
-    ax[1].hist(np.std(frame_e_cube,axis=0).flatten(), bins=20)
+    ax[1].hist(np.std(pc_cube,axis=0).flatten(), bins=20)
     ax[1].axvline(np.sqrt(mean_num_counts),color='black')
+    ax[1].axvline(np.sqrt(exp_lambda*e_coinloss*e_thresh),color='red')
     ax[1].set_title('PC pixel sdev')
     plt.tight_layout()
     plt.show()
-
-    # data = emccd.get_e_frame(emccd.slice_fluxmap(frames[0]).ravel())
-    # plt.figure()
-    # plt.hist(data, bins=50)
-    # plt.title(f'em gain = {em_gain}, lambda = {np.mean(full_fluxmap) * frametime}')
-    # plt.xlabel('counts (e-)')
-
-    # plt.show()

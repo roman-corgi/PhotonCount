@@ -70,11 +70,18 @@ def get_count_rate(frames, thresh, em_gain, niter=2):
         'photon counting')
 
     # Photon count stack of frames
-    nframes = len(frames)
-    frames_pc = np.array([photon_count(frame, thresh) for frame in frames])
+    if len(frames.shape) > 2:
+        nframes = len(frames)
+        frames_pc = np.array([photon_count(frame, thresh) for frame in frames])
+    if len(frames.shape) <= 2:
+        nframes = 1
+        frames_pc = photon_count(frames, thresh)
 
     # Co-add frames
-    frame_pc_coadded = np.sum(frames_pc, axis=0)
+    if nframes > 1:
+        frame_pc_coadded = np.sum(frames_pc, axis=0)
+    else:
+        frame_pc_coadded = frames_pc
 
     # Correct for thresholding and coincidence loss
     mean_expected_rate = corr_photon_count(frame_pc_coadded, nframes, thresh,
@@ -127,7 +134,18 @@ def get_counts_uncorrected(frames, thresh, em_gain):
         'photon counting')
 
     # Photon count stack of frames
-    frames_pc = np.array([photon_count(frame, thresh) for frame in frames])
+    if len(frames.shape) > 2:
+        nframes = len(frames)
+        frames_pc = np.array([photon_count(frame, thresh) for frame in frames])
+    if len(frames.shape) <= 2:
+        nframes = 1
+        frames_pc = photon_count(frames, thresh)
+
+    # Co-add frames
+    #if nframes > 1:
+    #    frame_pc_coadded = np.sum(frames_pc, axis=0)
+    #else:
+    #    frame_pc_coadded = frames_pc
 
     return frames_pc
 
