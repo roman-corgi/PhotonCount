@@ -33,14 +33,14 @@ if __name__ == '__main__':
         em_gain=em_gain,
         full_well_image=60000.,  # e-
         full_well_serial=100000.,  # e-
-        dark_current=0.00,  # e-/pix/s
-        cic=0.0,  # e-/pix/frame
-        read_noise=0.,  # e-/pix/frame
-        bias=0, # 10000.,  # e-
-        qe=1,  # set this to 1 so it doesn't affect lambda
+        dark_current=8.33e-4,  # e-/pix/s
+        cic=0.02,  # e-/pix/frame
+        read_noise=100.,  # e-/pix/frame
+        bias=10, # 10000.,  # e-
+        qe=.9,  # set this to 1 so it doesn't affect lambda
         cr_rate=0.,  # hits/cm^2/s
         pixel_pitch=13e-6,  # m
-        eperdn=1.,  # set this to 1 so there's no data loss when converting back to e-
+        eperdn=2.,  # set this to 1 so there's no data loss when converting back to e-
         nbits=64,
         numel_gain_register=604
         )
@@ -133,7 +133,7 @@ if __name__ == '__main__':
     # plt.show()
 
     counts = 0
-    ntimes = 50
+    ntimes = 100
     pc_list = []
     nframes = 70
     for x in range(ntimes):
@@ -174,14 +174,16 @@ if __name__ == '__main__':
     f, ax = plt.subplots(1,2)
     #ax[0].hist(np.mean(pc_frame).flatten(), bins=20)
     ax[0].hist(np.mean(pc_cube,axis=0).flatten(), bins=20)
-    ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
-    ax[0].axvline(mean_num_counts, color='red')
-    ax[0].axvline(e_thresh*exp_lambda*e_coinloss, color='green')
+    #ax[0].axvline(np.mean(fluxmap)*frametime, color='black')
+    #ax[0].axvline(mean_num_counts, color='red')
+    #ax[0].axvline(e_thresh*exp_lambda*e_coinloss, color='green')
+    ax[0].axvline(np.mean(np.mean(pc_cube,axis=0).flatten()), color='green')
     ax[0].set_title('PC pixel mean')
     #ax[1].hist(np.std(pc_frame).flatten(), bins=20)
     ax[1].hist(np.std(pc_cube,axis=0).flatten(), bins=20)
-    ax[1].axvline(np.sqrt(mean_num_counts),color='black')
-    ax[1].axvline(np.sqrt(exp_lambda*e_coinloss*e_thresh),color='red')
+    #ax[1].axvline(np.sqrt(mean_num_counts),color='black')
+    #ax[1].axvline(np.sqrt(exp_lambda*e_coinloss*e_thresh),color='red')
+    ax[1].axvline(np.mean(np.std(pc_cube,axis=0).flatten()), color='green')
     ax[1].set_title('PC pixel sdev')
     plt.tight_layout()
     plt.show()
