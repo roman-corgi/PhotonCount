@@ -17,7 +17,7 @@ def get_count_rate(frames, thresh, em_gain, niter=2):
     """Take a stack of analog images and return the mean expected rate.
 
     This algorithm will photon count each frame in the stack individually,
-    then co-add the photon counted frames. The coadded frame is then averaged
+    then co-add the photon counted frames. The co-added frame is then averaged
     and corrected for thresholding and coincidence loss, returning the mean
     expected rate in units of e-/pix/frame.
 
@@ -90,11 +90,11 @@ def get_count_rate(frames, thresh, em_gain, niter=2):
     return mean_expected_rate
 
 def get_counts_uncorrected(frames, thresh, em_gain):
-    """Take a stack of analog images and return the mean expected rate.
+    """Take a stack of analog images and return the photon-counted stack.
+
     This algorithm will photon count each frame in the stack individually,
-    then return this stack, without correcting for thresholding or coincidence
-    loss.
-    Parameters
+    then return the stack without correcting for thresholding and coincidence
+    loss, returning the stack in units of e-/pix/frame.
     ----------
     frames : array_like
         Bias subtracted frames in units of electrons (not dark subtracted or
@@ -141,11 +141,9 @@ def get_counts_uncorrected(frames, thresh, em_gain):
         nframes = 1
         frames_pc = photon_count(frames, thresh)
 
-    # Co-add frames
+    # Co-add and take the mean
     #if nframes > 1:
-    #    frame_pc_coadded = np.sum(frames_pc, axis=0)
-    #else:
-    #    frame_pc_coadded = frames_pc
+    #    frames_pc = np.mean(frames_pc, axis=0)
 
     return frames_pc
 
