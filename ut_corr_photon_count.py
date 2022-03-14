@@ -6,9 +6,9 @@ import unittest
 import numpy as np
 
 from PhotonCount.corr_photon_count import (calc_lam_approx,
-                                              corr_photon_count, get_count_rate,
-                                              lam_newton_fit, _calc_dfunc,
-                                              _calc_func)
+                                            corr_photon_count, get_count_rate,
+                                            lam_newton_fit, _calc_dfunc,
+                                            _calc_func, get_counts_uncorrected)
 from PhotonCount.corr_photon_count import CorrPhotonCountException
 
 
@@ -150,6 +150,93 @@ class TestGetCountRate(unittest.TestCase):
 
         self.assertEqual(rate.shape, (5, 5))
 
+class TestGetCountsUncorrected(unittest.TestCase):
+    """Unit tests for get_counts_uncorrected function."""
+
+    def setUp(self):
+        self.tol = 1e-12
+
+        self.thresh = 1000.
+        self.em_gain = 5000.
+        self.niter = 2
+
+        self.frames = np.zeros((3, 5, 5)).astype(np.float64)
+
+    def test_analytical(self):
+        """Verify function matches expected results."""
+        frames = self.frames.copy()  # nframes should be 3 from this
+        # This should be counted (2 counts)
+        frames[0, 0, 0] = self.thresh + 1
+        frames[2, 0, 0] = self.thresh + 3  # Shouldn't matter how high above thresh
+        # This should be counted (1 count)
+        frames[0, 3, 0] = self.thresh + 1
+        # These should not be counted (below or at threshold)
+        frames[1, 0, 1] = self.thresh
+        frames[2, 0, 1] = self.thresh
+        frames[0, 2, 0] = self.thresh - 1
+
+        rate_expected = np.zeros_like(frames)
+        rate_expected[0, 0, 0] = 1
+        rate_expected[2, 0, 0] = 1
+        rate_expected[0, 3, 0] = 1
+
+        rate = get_counts_uncorrected(frames, self.thresh, self.em_gain)
+
+        self.assertTrue(np.max(np.abs(rate - rate_expected)) < self.tol)
+
+    def test_negative_is_zero(self):
+        """Verify function returns zeros for any negative input values."""
+        frames = self.frames.copy()
+        frames[0, 0, 0] = -1
+
+        rate_expected = np.zeros_like(frames[0])
+
+        rate = get_counts_uncorrected(frames, self.thresh, self.em_gain)
+
+        self.assertTrue(np.max(np.abs(rate - rate_expected)) < self.tol)
+
+    def test_shape_match(self):
+        """Verify output array matches the shape of the input arrays."""
+        nside = 5
+        mside = 6
+        frames = np.ones((3, nside, mside)).astype(np.float64)
+
+        rate = get_counts_uncorrected(frames, self.thresh, self.em_gain)
+
+        self.assertEqual(rate.shape, (3, nside, mside))
+
+    def test_exception_not_array(self):
+        """Verify that exception is thrown if input is not an array."""
+        frames = 1
+        with self.assertRaises(CorrPhotonCountException):
+            get_counts_uncorrected(frames, self.thresh, self.em_gain)
+
+    def test_exception_thresh_negative(self):
+        """Verify that exception is thrown if thresh is negative."""
+        thresh = -1
+        with self.assertRaises(CorrPhotonCountException):
+            get_counts_uncorrected(self.frames, thresh, self.em_gain)
+
+    def test_exception_em_gain_less_than_zero(self):
+        """Verify that exception is thrown if em_gain is less than or equal to
+        0.
+
+        """
+        em_gain = 0
+        with self.assertRaises(CorrPhotonCountException):
+            get_counts_uncorrected(self.frames, self.thresh, em_gain)
+        em_gain = -1
+        with self.assertRaises(CorrPhotonCountException):
+            get_counts_uncorrected(self.frames, self.thresh, em_gain)
+
+    def test_nframes_1(self):
+        """Verify that get_count_rate works when the input to get_count_rate is
+        1 frame.
+        """
+        frame = np.zeros((5, 5)).astype(np.float64)
+        rate = get_count_rate(frame, self.thresh, self.em_gain)
+
+        self.assertEqual(rate.shape, (5, 5))
 
 class TestCorrPhotonCount(unittest.TestCase):
     """Unit tests for corr_photon_count function."""

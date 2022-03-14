@@ -135,10 +135,10 @@ def get_counts_uncorrected(frames, thresh, em_gain):
 
     # Photon count stack of frames
     if len(frames.shape) > 2:
-        nframes = len(frames)
+        #nframes = len(frames)
         frames_pc = np.array([photon_count(frame, thresh) for frame in frames])
     if len(frames.shape) <= 2:
-        nframes = 1
+        #nframes = 1
         frames_pc = photon_count(frames, thresh)
 
     # Co-add and take the mean
