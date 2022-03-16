@@ -206,6 +206,7 @@ if __name__ == '__main__':
     mean_num_counts = np.sum(np.sum(frames_unc,axis=0))/(ntimes*N*pix_row**2)
     mean_num_dark_counts = np.sum(np.sum(frames_dark_unc,axis=0))/(ntimes*N*pix_row**2)
 
+    # corrected frames
     pc_cube = np.stack(pc_list)
     pc_dark_cube = np.stack(pc_dark_list)
     pc_cube_unc = frames_unc
@@ -215,7 +216,7 @@ if __name__ == '__main__':
     print('mean number of 1-designated counts = ', mean_num_counts)
     print('e_thresh*L*e_coinloss = ', e_thresh(g, L, T)*L*e_coinloss(L))
 
-    # plotting uncorrected case
+    # plotting uncorrected case, no dark subtraction
     f, ax = plt.subplots(1,2)
     ax[0].hist(np.mean(pc_cube_unc,axis=0).flatten(), bins=20)
     #ax[0].axvline(L, color='black')
@@ -229,7 +230,7 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.show()
 
-    # plotting corrected case
+    # plotting corrected case, no dark subtraction
     f, ax = plt.subplots(1,2)
     ax[0].hist(np.mean(pc_cube,axis=0).flatten(), bins=20)
     ax[0].axvline(mean(g, L, T, N), color='blue')
