@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Get histograms of noise."""
+"""Get histograms of mean and noise for photon-counted frames, corrected
+and uncorrected."""
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -7,20 +8,6 @@ import warnings
 from emccd_detect.emccd_detect import EMCCDDetect
 from PhotonCount.corr_photon_count import (get_count_rate,
                                         get_counts_uncorrected)
-
-def imagesc(data, title=None, vmin=None, vmax=None, cmap='viridis',
-            aspect='equal', colorbar=True):
-    """Plot a scaled colormap."""
-    fig, ax = plt.subplots()
-    im = ax.imshow(data, vmin=vmin, vmax=vmax, cmap=cmap, aspect=aspect)
-
-    if title:
-        ax.set_title(title)
-    if colorbar:
-        fig.colorbar(im, ax=ax)
-
-    return fig, ax
-
 
 if __name__ == '__main__':
     pix_row = 50 #number of rows and number of columns
