@@ -38,7 +38,7 @@ if __name__ == '__main__':
         cic=1.3e-3,  # e-/pix/frame
         read_noise=100.,  # e-/pix/frame
         bias=10000.,  # e-
-        qe=0.9*0.75,
+        qe=0.8,
         cr_rate=0.,  # hits/cm^2/s
         pixel_pitch=13e-6,
         eperdn=7.,
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     fluxmap = np.load(Path(here, 'fluxmap.npy'))
 
     # Simulate frames
-    # Set frametime to get an output of 1 phot/pix
+    # Set frametime to get a good output, like 0.1 phot/pix or less
     frametime = 10 # s
     frame_e_list = []
     frame_e_dark_list = []
