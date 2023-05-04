@@ -19,7 +19,11 @@ if __name__ == '__main__':
     pix_row = 50 #number of rows and number of columns
     fluxmap = np.ones((pix_row,pix_row)) #photon flux map, photons/s
     frametime = 0.05  # s (adjust lambda by adjusting this)
-    N = 100 # number of frames per trial
+
+    # In order for the uncertainty of standard deviation to be accurate (i.e.,
+    # assumed to be what it is for normal distribution), N > 9*(1-eThresh)/eThresh
+    # and N > 9*eThresh/(1-eThresh).  For our input parameters, this means N > 176.
+    N = 200 # number of frames per trial
     # number of iterations to run photon-counting algorithm (for statistics):
     ntimes = 500
     em_gain = 5000. # e-
@@ -128,6 +132,7 @@ if __name__ == '__main__':
 
     # for histogram at end:
     pc_unc_counts_cube = np.stack(pc_unc_counts_list)
+
     # uncorrected frames
     pc_unc_avg_cube = np.stack(pc_unc_sub_avg_list)
     pc_unc_std_cube = np.stack(pc_unc_sub_std_list)
@@ -204,13 +209,13 @@ if __name__ == '__main__':
 
     print("\n")
     print("CORRECTED-------------------------------")
-    print('average signal (averaged over trials and all pixels) = ', mean_num_counts_corr)
-    print('uncertainty of the signal (over trials and all pixels) = ', uncertainty_mean_num_counts_corr)
+    print('average signal (averaged over all pixels) = ', mean_num_counts_corr)
+    print('uncertainty of the signal (over all pixels) = ', uncertainty_mean_num_counts_corr)
     print('signal range: (', mean_num_counts_corr-uncertainty_mean_num_counts_corr, ', ',mean_num_counts_corr+uncertainty_mean_num_counts_corr, ')')
     print('signal expected from probability distribution = ', meanL23(g,L,T,N)-meanL23(g,L_dark,T,N))
 
-    print('average noise (averaged over trials and all pixels) = ', std_num_counts_corr)
-    print('uncertainty of the noise (over trials and all pixels) = ', uncertainty_std_num_counts_corr)
+    print('average noise (averaged over all pixels) = ', std_num_counts_corr)
+    print('uncertainty of the noise (over all pixels) = ', uncertainty_std_num_counts_corr)
     print('noise range: (', std_num_counts_corr-uncertainty_std_num_counts_corr, ', ',std_num_counts_corr+uncertainty_std_num_counts_corr, ')')
     print('noise expected from probability distribution = ', np.sqrt(varL23(g,L,T,N)+varL23(g,L_dark,T,N)))
 
