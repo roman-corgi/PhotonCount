@@ -1,18 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Get histograms of mean and noise for photon-counted frames, corrected
-and uncorrected."""
+"""Calculate observational (from simulation) and theoretical signal and noise for SNR
+for photon-counted frames, "corrected"
+and "uncorrected".  See paper for details."""
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
+from scipy.special import comb
+from scipy.stats import chisquare, chi2
+from mpmath import hyper
 
+# for simulating detector frames
 from emccd_detect.emccd_detect import EMCCDDetect
+# for perform the photon-counting
 from PhotonCount.corr_photon_count import (get_count_rate,
                                         get_counts_uncorrected)
 
 if __name__ == '__main__':
     pix_row = 50 #number of rows and number of columns
     fluxmap = np.ones((pix_row,pix_row)) #photon flux map, photons/s
-    frametime = .1  # s (adjust lambda by adjusting this)
+    frametime = 0.05  # s (adjust lambda by adjusting this)
+
+    # In order for the uncertainty of standard deviation to be accurate (i.e.,
+    # assumed to be what it is for normal distribution), N > 9*(1-eThresh)/eThresh
+    # and N > 9*eThresh/(1-eThresh).  For our input parameters, this means N > 176.
+    N = 200 # number of frames per trial
+    N2 = 300 # number of frames per trial for darks
+    # number of iterations to run photon-counting algorithm (for statistics):
+    ntimes = 500
     em_gain = 5000. # e-
 
     emccd = EMCCDDetect(
@@ -24,7 +38,7 @@ if __name__ == '__main__':
         read_noise=100.,  # e-/pix/frame
         bias=0,  # e-; 0 for simplicity
         qe=0.9,  # quantum efficiency, e-/photon
-        cr_rate=0.,  # hits/cm^2/s
+        cr_rate=0.,  # cosmic rays incidence, hits/cm^2/s
         pixel_pitch=13e-6,  # m
         eperdn=1,  # for simplicity, set this to 1 so there's no data loss when converting back to e-
         nbits=64, # number of ADU bits
@@ -32,10 +46,9 @@ if __name__ == '__main__':
         )
 
     thresh = emccd.em_gain/10 # threshold
-    N = 25 #number of frames
 
-    if np.average(frametime*fluxmap) > 0.5:
-        warnings.warn('average # of photons/pixel is > 0.5.  Decrease frame '
+    if np.average(frametime*fluxmap) > 0.1:
+        warnings.warn('average # of photons/pixel is > 0.1.  Decrease frame '
         'time to get lower average # of photons/pixel.')
 
     if emccd.read_noise <=0:
@@ -46,205 +59,218 @@ if __name__ == '__main__':
        'accurate photon counting')
 
     avg_ph_flux = np.mean(fluxmap)
+    # theoretical electron flux for brights
     L = avg_ph_flux*emccd.qe*frametime + emccd.dark_current*frametime\
         +emccd.cic
+    # theoretical electron flux for darks
     L_dark = emccd.dark_current*frametime + emccd.cic
+
     g = em_gain
     T = thresh
-    # uncorrected case
-    def e_coinloss(L):
-        return (1 - np.exp(-L)) / L
-    def e_thresh(g, L, T):
-        return (np.exp(-T/g)* (
-            T**2 * L**2
-            + 2*g * T * L * (3 + L)
-            + 2*g**2 * (6 + 3*L + L**2)
-            )
-            / (2*g**2 * (6 + 3*L + L**2))
-            )
 
-    # corrected case
-    # assuming lambda relatively small, expansion to 3rd order
-    def mean(g, L, T, N):
-        return (((-1 + np.e**L)*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*
-            (8*np.e**(3*(L + T/g))*g**6*(6 + L*(3 + L))**3*(6*g - 5*T)*(g**2 - 2*g*T + 2*T**2) -
-            28*np.e**(2*(L + T/g))*g**4*N*(6 + L*(3 + L))**2*(6*g - 5*T)*(g**2 - 2*g*T + 2*T**2)*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2) + 12*np.e**(L + T/g)*g**2*N**2*(6 + L*(3 + L))*
-                (6*g - 5*T)*(g**2 - 2*g*T + 2*T**2)*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**2 -
-            N**3*(6*g - 5*T)*(g**2 - 2*g*T + 2*T**2)*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**3 +
-            4*np.e**(3*L + (2*T)/g)*g**4*N*(6 + L*(3 + L))**2*(100*g**5*(6 + L*(3 + L)) -
-                6*g**4*(270 + 31*L*(3 + L))*T + 6*g**3*(328 + L*(45 + 22*L))*T**2 +
-                7*g**2*(-120 + L*(72 + 7*L))*T**3 + 14*g*(-30 + L)*L*T**4 - 70*L**2*T**5) +
-            np.e**L*N**3*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**2*
-                (52*g**5*(6 + L*(3 + L)) - 2*g**4*(402 + 49*L*(3 + L))*T + 2*g**3*(456 + L*(75 + 34*L))*T**2 +
-                3*g**2*(-120 + L*(72 + 7*L))*T**3 + 6*g*(-30 + L)*L*T**4 - 30*L**2*T**5) -
-            24*np.e**(2*L + T/g)*g**2*N**2*(6 + L*(3 + L))*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*
-                (16*g**5*(6 + L*(3 + L)) - 6*g**4*(42 + 5*L*(3 + L))*T + 3*g**3*(98 + L*(15 + 7*L))*T**2 +
-                g**2*(-120 + L*(72 + 7*L))*T**3 + 2*g*(-30 + L)*L*T**4 - 10*L**2*T**5) -
-            np.e**(2*L)*N**3*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*
-                (184*g**7*(6 + L*(3 + L))**2 - 4*g**6*(6 + L*(3 + L))*(570 + 43*L*(3 + L))*T -
-                8*g**5*(-1548 + (-3 + L)*L*(114 + L*(57 + 2*L)))*T**2 +
-                4*g**4*(-1080 + L*(1656 + L*(789 + L*(279 + 22*L))))*T**3 +
-                2*g**3*L*(-2160 + L*(300 + L*(222 + 71*L)))*T**4 - 9*g**2*L**2*(200 + L*(32 + 3*L))*T**5 -
-                18*g*L**3*(20 + 3*L)*T**6 - 30*L**4*T**7) + 12*np.e**(3*L + T/g)*g**2*N**2*(6 + L*(3 + L))*
-                (48*g**7*(6 + L*(3 + L))**2 - 4*g**6*(6 + L*(3 + L))*(162 + 11*L*(3 + L))*T -
-                4*g**5*(-972 + L*(-216 + L*(-39 + L*(30 + L))))*T**2 +
-                4*g**4*(-360 + L*(522 + L*(246 + L*(87 + 7*L))))*T**3 + 2*g**3*L*(-720 + L*(90 + L*(69 + 22*L)))*
-                T**4 - 3*g**2*L**2*(200 + L*(32 + 3*L))*T**5 - 6*g*L**3*(20 + 3*L)*T**6 - 10*L**4*T**7) +
-            np.e**(3*L)*N**3*(400*g**9*(6 + L*(3 + L))**3 + 8*g**8*(-15 + L)*(18 + L)*(6 + L*(3 + L))**2*T -
-                8*g**7*(6 + L*(3 + L))*(-1152 + L*(558 + L*(381 + L*(153 + 14*L))))*T**2 +
-                4*g**6*(-4320 + L*(12096 + L*(8712 + L*(3726 + L*(495 + (12 - 13*L)*L)))))*T**3 +
-                4*g**5*L*(-6480 + L*(2664 + L*(3402 + L*(1794 + L*(381 + 41*L)))))*T**4 +
-                2*g**4*L**2*(-8640 + L*(-1872 + L*(396 + L*(417 + 61*L))))*T**5 - 6*g**3*L**3*(1080 + L*(412 + 71*L))*
-                T**6 - g**2*L**4*(1440 + L*(504 + 65*L))*T**7 - 2*g*L**5*(90 + 19*L)*T**8 - 10*L**6*T**9)))/
-                (384*np.e**(4*L)*g**11*N**3*(6 + L*(3 + L))**4))
-    def var(g, L, T, N):
-        return (np.e**(-5*L + T/g)*(-1 + np.e**L)*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*
-            (16*np.e**(4*(L + T/g))*g**8*(6 + L*(3 + L))**4*(4*g**2 - 8*g*T + 5*T**2)**2 - 240*np.e**(3*(L + T/g))*g**6*(6 + L*(3 + L))**3*N*(4*g**2 - 8*g*T + 5*T**2)**2*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2) + 336*np.e**(2*(L + T/g))*g**4*(6 + L*(3 + L))**2*N**2*(4*g**2 - 8*g*T + 5*T**2)**2*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**2 - 108*np.e**(L + T/g)*g**2*(6 + L*(3 + L))*N**3*(4*g**2 - 8*g*T + 5*T**2)**2*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**3 + 9*N**4*(4*g**2 - 8*g*T + 5*T**2)**2*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**4 - 36*np.e**L*N**4*(4*g**2 - 8*g*T + 5*T**2)*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**3*(12*g**4*(6 + L*(3 + L)) - 12*g**3*(10 + L*(3 + L))*T - 2*g**2*(-30 + L*(9 + L))*T**2 +
-                2*g*L*(15 + L)*T**3 + 5*L**2*T**4) - 672*np.e**(3*L + (2*T)/g)*g**4*(6 + L*(3 + L))**2*N**2*(4*g**2 - 8*g*T + 5*T**2)*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*(10*g**4*(6 + L*(3 + L)) - 2*g**3*(54 + 5*L*(3 + L))*T - 2*g**2*(-30 + L*(9 + L))*T**2 +
-                2*g*L*(15 + L)*T**3 + 5*L**2*T**4) + 48*np.e**(4*L + (3*T)/g)*g**6*(6 + L*(3 + L))**3*N*(4*g**2 - 8*g*T + 5*T**2)*
-                (44*g**4*(6 + L*(3 + L)) - 4*g**3*(126 + 11*L*(3 + L))*T - 10*g**2*(-30 + L*(9 + L))*T**2 + 10*g*L*(15 + L)*T**3 + 25*L**2*T**4) +
-            36*np.e**(2*L + T/g)*g**2*(6 + L*(3 + L))*N**3*(4*g**2 - 8*g*T + 5*T**2)*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**2*
-                (100*g**4*(6 + L*(3 + L)) - 4*g**3*(258 + 25*L*(3 + L))*T - 18*g**2*(-30 + L*(9 + L))*T**2 + 18*g*L*(15 + L)*T**3 + 45*L**2*T**4) -
-            36*np.e**(3*L)*N**4*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*(12*g**4*(6 + L*(3 + L)) - 12*g**3*(10 + L*(3 + L))*T -
-                2*g**2*(-30 + L*(9 + L))*T**2 + 2*g*L*(15 + L)*T**3 + 5*L**2*T**4)*(48*g**6*(6 + L*(3 + L))**2 - 288*g**5*(6 + L*(3 + L))*T -
-                4*g**4*(-180 + L*(180 + L*(123 + L*(48 + 5*L))))*T**2 - 8*g**3*L*(-90 + L*(3 + L)*(-3 + 2*L))*T**3 + 12*g**2*L**2*(25 + L*(7 + L))*T**4 +
-                12*g*L**3*(5 + L)*T**5 + 5*L**4*T**6) + 9*np.e**(4*L)*N**4*(48*g**6*(6 + L*(3 + L))**2 - 288*g**5*(6 + L*(3 + L))*T -
-                4*g**4*(-180 + L*(180 + L*(123 + L*(48 + 5*L))))*T**2 - 8*g**3*L*(-90 + L*(3 + L)*(-3 + 2*L))*T**3 + 12*g**2*L**2*(25 + L*(7 + L))*T**4 +
-                12*g*L**3*(5 + L)*T**5 + 5*L**4*T**6)**2 + 18*np.e**(2*L)*N**4*(2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)**2*
-                (480*g**8*(6 + L*(3 + L))**2 - 192*g**7*(6 + L*(3 + L))*(48 + 5*L*(3 + L))*T + 32*g**6*(2232 + L*(1044 + L*(420 + L*(39 + 11*L))))*T**2 +
-                288*g**5*(-150 + L*(45 + L*(29 + L*(15 + L))))*T**3 + 12*g**4*(900 + L*(-2340 + L*(-459 + L*(-108 + 19*L))))*T**4 -
-                24*g**3*L*(-450 + L*(255 + L*(69 + 16*L)))*T**5 - 12*g**2*L**2*(-375 + L*(15 + 4*L))*T**6 + 60*g*L**3*(15 + L)*T**7 + 75*L**4*T**8) +
-            48*np.e**(4*L + (2*T)/g)*g**4*(6 + L*(3 + L))**2*N**2*(716*g**8*(6 + L*(3 + L))**2 - 8*g**7*(6 + L*(3 + L))*(1914 + 179*L*(3 + L))*T +
-                12*g**6*(11076 + L*(4692 + L*(1757 + L*(82 + 37*L))))*T**2 + 112*g**5*(-810 + L*(243 + L*(147 + 5*L*(15 + L))))*T**3 +
-                28*g**4*(900 + L*(-2160 + L*(-387 + L*(-87 + 16*L))))*T**4 - 84*g**3*L*(-300 + L*(160 + L*(41 + 9*L)))*T**5 -
-                28*g**2*L**2*(-375 + L*(15 + 4*L))*T**6 + 140*g*L**3*(15 + L)*T**7 + 175*L**4*T**8) - 36*np.e**(3*L + T/g)*g**2*(6 + L*(3 + L))*N**3*
-                (2*g**2*(6 + L*(3 + L)) + 2*g*L*(3 + L)*T + L**2*T**2)*(1200*g**8*(6 + L*(3 + L))**2 - 2400*g**7*(6 + L*(3 + L))*(10 + L*(3 + L))*T +
-                32*g**6*(6084 + L*(2736 + L*(1071 + L*(81 + 26*L))))*T**2 + 32*g**5*(-3870 + L*(1161 + L*(729 + 25*L*(15 + L))))*T**3 +
-                12*g**4*(2700 + L*(-6780 + L*(-1281 + L*(-296 + 53*L))))*T**4 - 8*g**3*L*(-4050 + L*(2235 + L*(591 + 134*L)))*T**5 -
-                36*g**2*L**2*(-375 + L*(15 + 4*L))*T**6 + 180*g*L**3*(15 + L)*T**7 + 225*L**4*T**8) + 36*np.e**(4*L + T/g)*g**2*(6 + L*(3 + L))*N**3*
-                (1248*g**10*(6 + L*(3 + L))**3 - 96*g**9*(6 + L*(3 + L))**2*(228 + 13*L*(3 + L))*T -
-                16*g**8*(6 + L*(3 + L))*(-9828 + L*(-828 + L*(417 + L*(537 + 52*L))))*T**2 +
-                16*g**7*(-33480 + L*(22788 + L*(26406 + L*(16011 + L*(4011 + L*(657 + 23*L))))))*T**3 +
-                24*g**6*(5400 + L*(-22860 + L*(-6294 + L*(393 + L*(1843 + 13*L*(37 + 5*L))))))*T**4 -
-                24*g**5*L*(-8100 + L*(8580 + L*(4809 + L*(1613 + L*(109 + L)))))*T**5 - 4*g**4*L**2*(-32400 + L*(4950 + L*(5307 + L*(1971 + 166*L))))*T**6 +
-                4*g**3*L**3*(12150 + L*(1950 - L*(51 + 95*L)))*T**7 + 6*g**2*L**4*(1800 + L*(405 + 37*L))*T**8 + 30*g*L**5*(45 + 7*L)*T**9 + 75*L**6*T**10)))/(4608*g**14*(6 + L*(3 + L))**5*N**5)
+    # assuming lambda << 1, expansion to 3rd order
 
-    counts = 0 # intializing number of photo-electron counts
-    # number of iterations to run photon-counting algorithm (for statistics):
-    ntimes = 100
-    pc_list = [] #initializing
+    def Const(L):
+        return (6*np.e**L)/(6 + L*(6 + L*(3 + L)))
+
+    def eThresh(g, L, T):
+        return Const(L)*(np.e**(-((g*L + T)/g))*L*(2*g**2*(6 + L*(3 + L)) +
+            2*g*L*(3 + L)*T + L**2*T**2))/(12*g**2)
+
+    def prob_dist(x, g, L, T, N):
+        return (comb(N-1, x)+comb(N-1, x-1))*((1 - eThresh(g, L, T))**(N - x)*
+                 eThresh(g, L, T)**x)
+
+    def std_dev(g, L, T): #for one frame or for an average of frames
+        return np.sqrt(eThresh(g, L, T) * (1-eThresh(g, L, T)))
+
+    pc_list = []
     pc_dark_list = []
-    grand_e_list = []
-    grand_e_dark_list = []
-    for x in range(ntimes):
+    pc_unc_sub_avg_list = []
+    pc_unc_std_bright_list = []
+    pc_unc_std_dark_list = []
+    pc_unc_sub_std_list = []
+    pc_unc_counts_list = []
+
+    for time in range(ntimes):
         frame_e_list = []
         frame_e_dark_list = []
         frame_e_dark_sub_list = []
         for i in range(N):
             # Simulate bright
             frame_dn = emccd.sim_sub_frame(fluxmap, frametime)
+
+            # Convert from dn to e- and bias subtract
+            frame_e = frame_dn * emccd.eperdn - emccd.bias
+
+            frame_e_list.append(frame_e)
+
+        for i in range(N2):
             # Simulate dark
             frame_dn_dark = emccd.sim_sub_frame(np.zeros_like(fluxmap), frametime)
 
             # Convert from dn to e- and bias subtract
-            frame_e = frame_dn * emccd.eperdn - emccd.bias
             frame_e_dark = frame_dn_dark * emccd.eperdn - emccd.bias
 
-            frame_e_list.append(frame_e)
             frame_e_dark_list.append(frame_e_dark)
-            #frame_e_dark_sub_list.append(frame_e - frame_e_dark)
 
-        # can also make stack of dark-subtracted if desired:
-        #frame_e_cube = np.stack(frame_e_dark_sub_list)
         frame_e_cube = np.stack(frame_e_list)
         frame_e_dark_cube = np.stack(frame_e_dark_list)
 
-        # grand stack for uncorrected case b/c averaging each iteration in
-        # ntimes would affect the standard deviation
-        grand_e_list += frame_e_list
-        grand_e_dark_list += frame_e_dark_list
-
-        if np.mean(np.mean(frame_e_cube))/emccd.em_gain < 4* \
-        np.max(np.array([emccd.cic, emccd.dark_current])):
-            warnings.warn('# of electrons/pixel needs to be bigger than about 4 '
-            'times the noise (due to CIC and dark current)')
-
+        # "corrected" frames
+        # L_{2,br} in terms of paper in doc folder
         mean_rate = get_count_rate(frame_e_cube, thresh, emccd.em_gain)
+        # L_{2,dk} in terms of paper in doc folder
         mean_dark_rate = get_count_rate(frame_e_dark_cube, thresh, emccd.em_gain)
 
         pc_list.append(mean_rate)
         pc_dark_list.append(mean_dark_rate)
 
-    #uncorrected frames
-    grand_e_cube = np.stack(grand_e_list)
-    grand_e_dark_cube = np.stack(grand_e_dark_list)
-    frames_unc = get_counts_uncorrected(grand_e_cube,
-                        thresh, emccd.em_gain)
-    frames_dark_unc = get_counts_uncorrected(grand_e_dark_cube,
-                        thresh, emccd.em_gain)
-    #to get avg # of '1's per pixel
-    mean_num_counts = np.sum(np.sum(frames_unc,axis=0))/(ntimes*N*pix_row**2)
-    mean_num_dark_counts = np.sum(np.sum(frames_dark_unc,axis=0))/(ntimes*N*pix_row**2)
+        # "uncorrected" frames
+        # N_{br} in terms of paper in doc folder
+        frames_unc = get_counts_uncorrected(frame_e_cube,
+                            thresh, emccd.em_gain)
+        # N_{dk} in terms of paper in doc folder
+        frames_dark_unc = get_counts_uncorrected(frame_e_dark_cube,
+                            thresh, emccd.em_gain)
+
+        # for histogram at the end of script
+        pc_unc_counts_list.append(np.sum(frames_unc,axis=0))
+
+        # finding mean of brights minus mean of darks
+        pc_unc_sub_avg_list.append(np.mean(frames_unc, axis=0) - np.mean(frames_dark_unc, axis=0))
+        # finding standard deviation of when these frames are subtracted
+        std_bright_frames = np.std(frames_unc, axis=0)
+        std_dark_frames = np.std(frames_dark_unc, axis=0)
+        pc_unc_std_bright_list.append(std_bright_frames)
+        pc_unc_std_dark_list.append(std_dark_frames)
+
+    # for histogram at end:
+    pc_unc_counts_cube = np.stack(pc_unc_counts_list)
+
+    # uncorrected frames
+    pc_unc_avg_cube = np.stack(pc_unc_sub_avg_list)
+    pc_unc_std_bright_cube = np.stack(pc_unc_std_bright_list)
+    pc_unc_std_dark_cube = np.stack(pc_unc_std_dark_list)
+
+    # SIGNAL
+    # mean # of '1's per pixel per frame for brights - darks, averaged over ntimes trials and npix*npix pixels
+    mean_num_counts = np.mean(pc_unc_avg_cube)
+    # uncertainty of mean is standard deviation of the mean, averaged over ntimes trials and npix*npix pixels
+    uncertainty_mean_num_counts = np.mean(np.sqrt((pc_unc_std_bright_cube/np.sqrt(N))**2 + (pc_unc_std_dark_cube/np.sqrt(N2))**2))
+
+    # NOISE
+    # standard deviation of '1's per pixel per frame for brights - darks, averaged over ntimes trials and npix*npix pixels
+    std_num_counts = np.mean(np.sqrt(pc_unc_std_bright_cube**2 + pc_unc_std_dark_cube**2))
+    # uncertainty of standard deviation is averaged over ntimes trials and npix*npix pixels
+    uncertainty_std_num_counts = np.mean(np.sqrt((pc_unc_std_bright_cube/np.sqrt(2*(N-1)))**2 + (pc_unc_std_dark_cube/np.sqrt(2*(N2-1)))**2))
+
+    print("UNCORRECTED-----------------------------")
+    print('average signal (averaged over trials and all pixels) = ', mean_num_counts)
+    print('uncertainty of the signal (over trials and all pixels) = ', uncertainty_mean_num_counts)
+    print('signal range: (', mean_num_counts-uncertainty_mean_num_counts, ', ',mean_num_counts+uncertainty_mean_num_counts, ')')
+    print('signal expected from probability distribution = ', eThresh(g,L,T) - eThresh(g,L_dark,T))
+
+    print('average noise (averaged over trials and all pixels) = ', std_num_counts)
+    print('uncertainty of the noise (over trials and all pixels) = ', uncertainty_std_num_counts)
+    print('noise range: (', std_num_counts-uncertainty_std_num_counts, ', ',std_num_counts+uncertainty_std_num_counts, ')')
+    print('noise expected from probability distribution = ', np.sqrt(std_dev(g, L, T)**2 + std_dev(g,L_dark,T)**2))
+
+    print('SNR using average signal over average noise: ', mean_num_counts/std_num_counts)
+    print('SNR range:  (', (mean_num_counts-uncertainty_mean_num_counts)/(std_num_counts+uncertainty_std_num_counts), ', ', (mean_num_counts+uncertainty_mean_num_counts)/(std_num_counts-uncertainty_std_num_counts), ')')
+    print('Theoretical SNR:  ', (eThresh(g,L,T) - eThresh(g,L_dark,T))/np.sqrt(std_dev(g, L, T)**2 + std_dev(g,L_dark,T)**2))
+
+    # now for corrected SNR calculations
+
+    def exp1(g, L, T, N):
+        return N*eThresh(g,L,T)
+
+    def exp2(g, L, T, N):
+        return N*eThresh(g,L,T)*(1 + (-1 + N)*eThresh(g,L,T))
+
+    def exp3(g, L, T, N):
+        return float((eThresh(g,L,T)*(-((-1 + N)*(-1 + eThresh(g,L,T))**2*
+        (1 + (-2 + N)*eThresh(g,L,T)*(3 + (-3 + N)*eThresh(g,L,T)))) -
+        (1 - eThresh(g,L,T))**N*
+        hyper([2,2,2,1 - N],[1,1,1],1 + 1/(-1 + eThresh(g,L,T)))
+        ))/(-1 + eThresh(g,L,T)))
+
+    # "corrected" mean
+    def meanL23(g, L, T, N):
+        return np.e**(T/g)*exp1(g,L,T,N)/N + np.e**(2*T/g)*(g-T)*exp2(g,L,T,N)/(2*g*N**2) + \
+        np.e**(3*T/g)*(4*g**2-8*g*T+5*T**2)*exp3(g,L,T,N)/(12*g**2*N**3)
+
+    # "corrected" variance
+    def varL23(g, L, T, N):
+        return N*(std_dev(g,L,T))**2*(((np.e**((T/g)))/N) +
+        2*((np.e**((2*T)/g)*(g - T))/(2*g*N**2))*(N*eThresh(g,L,T)) +
+        3*(((np.e**(((3*T)/g)))*(4*g**2 - 8*g*T + 5*T**2))/(
+        12*g**2*N**3))*(N*eThresh(g,L,T))**2)**2
 
     # corrected frames
     pc_cube = np.stack(pc_list)
     pc_dark_cube = np.stack(pc_dark_list)
-    pc_cube_unc = frames_unc
-    pc_dark_cube_unc = frames_dark_unc
 
-    # these should be the same on average (relevant for uncorrected)
-    print('mean number of 1-designated counts = ', mean_num_counts)
-    print('e_thresh*L*e_coinloss = ', e_thresh(g, L, T)*L*e_coinloss(L))
+    # SIGNAL
+    # mean number of signal photoelectrons per pixel per frame for brights - darks, averaged over npix*npix pixels
+    mean_num_counts_corr = np.mean(np.mean(pc_cube - pc_dark_cube, axis=0))
+    # uncertainty of mean is standard deviation of mean, averaged over npix*npix pixels
+    uncertainty_mean_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0)/np.sqrt(ntimes))
 
-    # plotting uncorrected case, no dark subtraction
-    f, ax = plt.subplots(1,2)
-    ax[0].hist(np.mean(pc_cube_unc,axis=0).flatten(), bins=20)
-    #ax[0].axvline(L, color='black')
-    ax[0].axvline(e_thresh(g, L, T)*L*e_coinloss(L), color='blue')
-    ax[0].axvline(np.mean(np.mean(pc_cube_unc,axis=0).flatten()), color='green', linestyle= 'dotted')
-    ax[0].set_title('PC pixel mean, uncorrected')
-    ax[1].hist(np.std(pc_cube_unc,axis=0).flatten(), bins=20)
-    ax[1].axvline(np.sqrt(L*e_coinloss(L)*e_thresh(g, L, T))*e_coinloss(L),color='blue')
-    ax[1].axvline(np.mean(np.std(pc_cube_unc,axis=0).flatten()), color='green', linestyle= 'dotted')
-    ax[1].set_title('PC pixel sdev, uncorrected')
-    plt.tight_layout()
-    plt.show()
+    # NOISE
+    # standard deviation per pixel per frame for brights - darks, averaged over npix*npix pixels
+    std_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0))
+    # uncertainty of standard deviation, averaged over npix*npix pixels
+    uncertainty_std_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0)/np.sqrt(2*(ntimes-1)))
 
-    # plotting corrected case, no dark subtraction
-    f, ax = plt.subplots(1,2)
-    ax[0].hist(np.mean(pc_cube,axis=0).flatten(), bins=20)
-    ax[0].axvline(mean(g, L, T, N), color='blue')
-    ax[0].axvline(np.mean(np.mean(pc_cube,axis=0).flatten()), color='green', linestyle= 'dotted')
-    ax[0].set_title('PC pixel mean, corrected')
-    ax[1].hist(np.std(pc_cube,axis=0).flatten(), bins=20)
-    ax[1].axvline(np.sqrt(var(g, L, T, N))*e_coinloss(L),color='blue')
-    ax[1].axvline(np.mean(np.std(pc_cube,axis=0).flatten()), color='green', linestyle= 'dotted')
-    ax[1].set_title('PC pixel sdev, corrected')
-    plt.tight_layout()
-    plt.show()
+    print("\n")
+    print("CORRECTED-------------------------------")
+    print('average signal (averaged over all pixels) = ', mean_num_counts_corr)
+    print('uncertainty of the signal (over all pixels) = ', uncertainty_mean_num_counts_corr)
+    print('signal range: (', mean_num_counts_corr-uncertainty_mean_num_counts_corr, ', ',mean_num_counts_corr+uncertainty_mean_num_counts_corr, ')')
+    print('signal expected from probability distribution = ', meanL23(g,L,T,N)-meanL23(g,L_dark,T,N2))
 
-    # plotting corrected case where photon-counted darks have been subtracted
-    f, ax = plt.subplots(1,2)
-    ax[0].hist(np.mean(pc_cube - pc_dark_cube,axis=0).flatten(), bins=20)
-    # mean of the difference is the difference of the means
-    ax[0].axvline(mean(g, L, T, N) - mean(g, L_dark, T, N), color='blue')
-    ax[0].axvline(np.mean(np.mean(pc_cube-pc_dark_cube,axis=0).flatten()), color='green', linestyle= 'dotted')
-    ax[0].set_title('PC pixel mean, corrected, d-s')
-    ax[1].hist(np.std(pc_cube - pc_dark_cube,axis=0).flatten(), bins=20)
-    # variance of the difference is the sum of the variances
-    # standard deviation is the square root of this sum
-    std_dev_subtracted = np.sqrt(var(g, L, T, N)*e_coinloss(L)**2 +
-        var(g, L_dark, T, N)*e_coinloss(L_dark)**2)
-    ax[1].axvline(std_dev_subtracted,color='blue')
-    ax[1].axvline(np.mean(np.std(pc_cube-pc_dark_cube,axis=0).flatten()), color='green', linestyle= 'dotted')
-    ax[1].set_title('PC pixel sdev, corrected, d-s')
-    plt.tight_layout()
+    print('average noise (averaged over all pixels) = ', std_num_counts_corr)
+    print('uncertainty of the noise (over all pixels) = ', uncertainty_std_num_counts_corr)
+    print('noise range: (', std_num_counts_corr-uncertainty_std_num_counts_corr, ', ',std_num_counts_corr+uncertainty_std_num_counts_corr, ')')
+    print('noise expected from probability distribution = ', np.sqrt(varL23(g,L,T,N)+varL23(g,L_dark,T,N2)))
+
+    print('SNR using average signal over average noise: ', mean_num_counts_corr/std_num_counts_corr)
+    print('SNR range:  (', (mean_num_counts_corr-uncertainty_mean_num_counts_corr)/(std_num_counts_corr+uncertainty_std_num_counts_corr), ', ', (mean_num_counts_corr+uncertainty_mean_num_counts_corr)/(std_num_counts_corr-uncertainty_std_num_counts_corr), ')')
+    print('Theoretical SNR:  ', (meanL23(g,L,T,N)-meanL23(g,L_dark,T,N2))/np.sqrt(varL23(g,L,T,N)+varL23(g,L_dark,T,N2)))
+
+
+    co_added_unc = []
+
+    # the stats of (brights - darks) is not really relevant; I just show that the brights follow the probability distribution
+    # by the same token, the photon-counted darks would also follow the probability distribution.
+
+    # variates for number of bright frames
+    co_added_unc = pc_unc_counts_cube.flatten()
+
+    # plotting histogram of coadded frames (to check the probability distribution)
+    f, ax = plt.subplots()
+    ax.set_title('PC pixel sum over frames (Nbr), with expected prob dist')
+    # to get integer-valued x values for reliable chi2 analysis, we choose # of bins so that the x values are integer, as they should be.
+    # If N is set very high and ntimes is not high enough, then a better visual fit to the plot made below would be for fewer bins than what is specified in the next line
+    y_vals, x_vals = np.histogram(co_added_unc, bins=int(np.round(co_added_unc.max())))
+
+    # x_vals is the boundaries of the bins, so the length of x_vals is 1 more than y_vals, so we take x_vals[:-1].
+    # this scale below ensures the data and the expected distribution values are normalized the same
+    scale = np.sum(y_vals)/np.sum(prob_dist(x_vals[:-1], g,L,T,N))
+    # perform chi square analysis
+    chisquare_value, pvalue = chisquare(y_vals/scale, prob_dist(x_vals[:-1], g, L, T, N))
+    print('\n')
+    print('chi square value:  ', chisquare_value, ', p value: ', pvalue)
+    print('critical chi-square value:  ', chi2.ppf(1-0.05, df=co_added_unc.max()))
+    # p value close to 1:  data and trial probability distribution not statistically distinct
+    # null hypothesis accepted (i.e., good fit) when chi square value less than critical value
+
+    plt.scatter(x_vals[:-1], y_vals/scale)
+    plt.xlabel('c (in electrons)')
+    plt.ylabel('probability distribution')
+    plt.title(r'Histogram of counts for $N_{br}$ photon-counted frames')
+    x_arr = np.linspace(0, N+1, 1000)
+    plt.plot(x_arr, prob_dist(x_arr, g, L, T, N))
     plt.show()
 

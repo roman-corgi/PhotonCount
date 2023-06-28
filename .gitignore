@@ -1,3 +1,40 @@
-
+*~
+*.DS_Store
+*.pyc
+*/__pycache__/
 PhotonCount/__pycache__/corr_photon_count.cpython-38.pyc
 *.pyc
+doc/.DS_Store
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+.coverage
+htmlcov/
+
+# VS Code
+*.vscode/
+
+# Jupyter
+.ipynb_checkpoints
+*.m~
+*.asv
+*.bak
+
+# diff
+diff/
