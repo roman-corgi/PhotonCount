@@ -70,12 +70,16 @@ if __name__ == '__main__':
 
     # assuming lambda << 1, expansion to 3rd order
 
+    # adjusted things below from the paper in doc folder: moved np.e**L from
+    # Const and abosrbed it into
+    # eThresh to cancel with np.e**(-L) there to eliminate potential overflow
+    # issues for large L values, which realistically shouldn't happen
     def Const(L):
-        return (6*np.e**L)/(6 + L*(6 + L*(3 + L)))
+        return 6/(6 + L*(6 + L*(3 + L)))
 
     def eThresh(g, L, T):
-        return Const(L)*(np.e**(-((g*L + T)/g))*L*(2*g**2*(6 + L*(3 + L)) +
-            2*g*L*(3 + L)*T + L**2*T**2))/(12*g**2)
+        return float(Const(L)*(np.e**(-T/g)*L*(2*g**2*(6 + L*(3 + L)) +
+            2*g*L*(3 + L)*T + L**2*T**2))/(12*g**2))
 
     def prob_dist(x, g, L, T, N):
         return (comb(N-1, x)+comb(N-1, x-1))*((1 - eThresh(g, L, T))**(N - x)*
