@@ -18,15 +18,18 @@ from PhotonCount.corr_photon_count import (get_count_rate,
 if __name__ == '__main__':
     pix_row = 50 #number of rows and number of columns
     fluxmap = np.ones((pix_row,pix_row)) #photon flux map, photons/s
-    frametime = 0.05  # s (adjust lambda by adjusting this)
+    frametime = 0.1 # s (adjust lambda by adjusting this)
+
+    N = 600 # number of frames per trial for brights
+    N2 = 800 # number of frames per trial for darks
 
     # In order for the uncertainty of standard deviation to be accurate (i.e.,
-    # assumed to be what it is for normal distribution), N > 9*(1-eThresh)/eThresh
-    # and N > 9*eThresh/(1-eThresh).  For our input parameters, this means N > 176.
-    N = 200 # number of frames per trial
-    N2 = 300 # number of frames per trial for darks
-    # number of iterations to run photon-counting algorithm (for statistics):
-    ntimes = 500
+    # assumed to be what it is for normal distribution), the number of trials 
+    # of measurements must be M > 9*(1-eThresh)/eThresh
+    # and M > 9*eThresh/(1-eThresh). 
+    # number of trials to run photon-counting algorithm (to create ensemble 
+    # of measurements):
+    M = 500
     em_gain = 5000. # e-
 
     emccd = EMCCDDetect(
@@ -85,18 +88,26 @@ if __name__ == '__main__':
         return (comb(N-1, x)+comb(N-1, x-1))*((1 - eThresh(g, L, T))**(N - x)*
                  eThresh(g, L, T)**x)
 
-    def std_dev(g, L, T): #for one frame or for an average of frames
-        return np.sqrt(eThresh(g, L, T) * (1-eThresh(g, L, T)))
+    def std_dev(g, L, T, N): # for N frames
+        return np.sqrt(N * eThresh(g, L, T) * (1-eThresh(g, L, T)))
+
+    if M <= 9*(1-eThresh(g,L,T))/eThresh(g,L,T) or \
+        M <= 9*eThresh(g,L,T)/(1-eThresh(g,L,T)):
+        warnings.warn('M not big enough for the uncertainty of the '
+                      'standard deviation, which assumes the statistics of '
+                      'a normal distribution, to be accurate')
 
     pc_list = []
     pc_dark_list = []
+    pc_unc_list = []
+    pc_dark_unc_list = []
     pc_unc_sub_avg_list = []
     pc_unc_std_bright_list = []
     pc_unc_std_dark_list = []
     pc_unc_sub_std_list = []
     pc_unc_counts_list = []
 
-    for time in range(ntimes):
+    for time in range(M):
         frame_e_list = []
         frame_e_dark_list = []
         frame_e_dark_sub_list = []
@@ -138,36 +149,31 @@ if __name__ == '__main__':
         frames_dark_unc = get_counts_uncorrected(frame_e_dark_cube,
                             thresh, emccd.em_gain)
 
+        pc_unc_list.append(np.mean(frames_unc, axis=0))
+        pc_dark_unc_list.append(np.mean(frames_dark_unc, axis=0))
+
         # for histogram at the end of script
         pc_unc_counts_list.append(np.sum(frames_unc,axis=0))
-
-        # finding mean of brights minus mean of darks
-        pc_unc_sub_avg_list.append(np.mean(frames_unc, axis=0) - np.mean(frames_dark_unc, axis=0))
-        # finding standard deviation of when these frames are subtracted
-        std_bright_frames = np.std(frames_unc, axis=0)
-        std_dark_frames = np.std(frames_dark_unc, axis=0)
-        pc_unc_std_bright_list.append(std_bright_frames)
-        pc_unc_std_dark_list.append(std_dark_frames)
 
     # for histogram at end:
     pc_unc_counts_cube = np.stack(pc_unc_counts_list)
 
     # uncorrected frames
-    pc_unc_avg_cube = np.stack(pc_unc_sub_avg_list)
-    pc_unc_std_bright_cube = np.stack(pc_unc_std_bright_list)
-    pc_unc_std_dark_cube = np.stack(pc_unc_std_dark_list)
+    pc_unc_cube = np.stack(pc_unc_list)
+    pc_dark_unc_cube = np.stack(pc_dark_unc_list)
 
     # SIGNAL
-    # mean # of '1's per pixel per frame for brights - darks, averaged over ntimes trials and npix*npix pixels
-    mean_num_counts = np.mean(pc_unc_avg_cube)
-    # uncertainty of mean is standard deviation of the mean, averaged over ntimes trials and npix*npix pixels
-    uncertainty_mean_num_counts = np.mean(np.sqrt((pc_unc_std_bright_cube/np.sqrt(N))**2 + (pc_unc_std_dark_cube/np.sqrt(N2))**2))
+    # mean number of signal photoelectrons per pixel per frame for brights - darks, averaged over npix*npix pixels
+    mean_num_counts = np.mean(np.mean(pc_unc_cube - pc_dark_unc_cube, axis=0))
+    # uncertainty of mean is standard deviation of mean, averaged over npix*npix pixels
+    uncertainty_mean_num_counts = np.mean(np.std(pc_unc_cube - pc_dark_unc_cube, axis=0)/np.sqrt(M))
+
 
     # NOISE
-    # standard deviation of '1's per pixel per frame for brights - darks, averaged over ntimes trials and npix*npix pixels
-    std_num_counts = np.mean(np.sqrt(pc_unc_std_bright_cube**2 + pc_unc_std_dark_cube**2))
-    # uncertainty of standard deviation is averaged over ntimes trials and npix*npix pixels
-    uncertainty_std_num_counts = np.mean(np.sqrt((pc_unc_std_bright_cube/np.sqrt(2*(N-1)))**2 + (pc_unc_std_dark_cube/np.sqrt(2*(N2-1)))**2))
+    # standard deviation per pixel per frame for brights - darks, averaged over npix*npix pixels
+    std_num_counts = np.mean(np.std(pc_unc_cube - pc_dark_unc_cube, axis=0))
+    # uncertainty of standard deviation, averaged over npix*npix pixels
+    uncertainty_std_num_counts = np.mean(np.std(pc_unc_cube - pc_dark_unc_cube, axis=0)/np.sqrt(2*(M-1)))
 
     print("UNCORRECTED-----------------------------")
     print('average signal (averaged over trials and all pixels) = ', mean_num_counts)
@@ -178,11 +184,11 @@ if __name__ == '__main__':
     print('average noise (averaged over trials and all pixels) = ', std_num_counts)
     print('uncertainty of the noise (over trials and all pixels) = ', uncertainty_std_num_counts)
     print('noise range: (', std_num_counts-uncertainty_std_num_counts, ', ',std_num_counts+uncertainty_std_num_counts, ')')
-    print('noise expected from probability distribution = ', np.sqrt(std_dev(g, L, T)**2 + std_dev(g,L_dark,T)**2))
+    print('noise expected from probability distribution = ', np.sqrt((std_dev(g, L, T, N)/N)**2 + (std_dev(g,L_dark,T,N2)/N2)**2))
 
     print('SNR using average signal over average noise: ', mean_num_counts/std_num_counts)
     print('SNR range:  (', (mean_num_counts-uncertainty_mean_num_counts)/(std_num_counts+uncertainty_std_num_counts), ', ', (mean_num_counts+uncertainty_mean_num_counts)/(std_num_counts-uncertainty_std_num_counts), ')')
-    print('Theoretical SNR:  ', (eThresh(g,L,T) - eThresh(g,L_dark,T))/np.sqrt(std_dev(g, L, T)**2 + std_dev(g,L_dark,T)**2))
+    print('Theoretical SNR:  ', (eThresh(g,L,T) - eThresh(g,L_dark,T))/np.sqrt((std_dev(g, L, T, N)/N)**2 + (std_dev(g,L_dark,T,N2)/N2)**2))
 
     # now for corrected SNR calculations
 
@@ -206,7 +212,7 @@ if __name__ == '__main__':
 
     # "corrected" variance
     def varL23(g, L, T, N):
-        return N*(std_dev(g,L,T))**2*(((np.e**((T/g)))/N) +
+        return (std_dev(g,L,T,N))**2*(((np.e**((T/g)))/N) +
         2*((np.e**((2*T)/g)*(g - T))/(2*g*N**2))*(N*eThresh(g,L,T)) +
         3*(((np.e**(((3*T)/g)))*(4*g**2 - 8*g*T + 5*T**2))/(
         12*g**2*N**3))*(N*eThresh(g,L,T))**2)**2
@@ -219,13 +225,13 @@ if __name__ == '__main__':
     # mean number of signal photoelectrons per pixel per frame for brights - darks, averaged over npix*npix pixels
     mean_num_counts_corr = np.mean(np.mean(pc_cube - pc_dark_cube, axis=0))
     # uncertainty of mean is standard deviation of mean, averaged over npix*npix pixels
-    uncertainty_mean_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0)/np.sqrt(ntimes))
+    uncertainty_mean_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0)/np.sqrt(M))
 
     # NOISE
     # standard deviation per pixel per frame for brights - darks, averaged over npix*npix pixels
     std_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0))
     # uncertainty of standard deviation, averaged over npix*npix pixels
-    uncertainty_std_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0)/np.sqrt(2*(ntimes-1)))
+    uncertainty_std_num_counts_corr = np.mean(np.std(pc_cube - pc_dark_cube, axis=0)/np.sqrt(2*(M-1)))
 
     print("\n")
     print("CORRECTED-------------------------------")
@@ -256,8 +262,7 @@ if __name__ == '__main__':
     f, ax = plt.subplots()
     ax.set_title('PC pixel sum over frames (Nbr), with expected prob dist')
     # to get integer-valued x values for reliable chi2 analysis, we choose # of bins so that the x values are integer, as they should be.
-    # If N is set very high and ntimes is not high enough, then a better visual fit to the plot made below would be for fewer bins than what is specified in the next line
-    y_vals, x_vals = np.histogram(co_added_unc, bins=int(np.round(co_added_unc.max())))
+    y_vals, x_vals = np.histogram(co_added_unc, bins=int(np.unique(co_added_unc).size))
 
     # x_vals is the boundaries of the bins, so the length of x_vals is 1 more than y_vals, so we take x_vals[:-1].
     # this scale below ensures the data and the expected distribution values are normalized the same
